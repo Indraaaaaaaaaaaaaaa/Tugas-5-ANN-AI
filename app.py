@@ -1,6 +1,6 @@
 from flask import Flask, render_template, request, jsonify
 import tensorflow as tf
-from model import predict_cases
+from model import predict_cases, build_model, train_model
 import pandas as pd
 import os
 import matplotlib
@@ -8,12 +8,34 @@ matplotlib.use('Agg')  # Set backend ke Agg untuk server tanpa GUI
 import matplotlib.pyplot as plt
 import seaborn as sns
 import numpy as np
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import MinMaxScaler
 
 app = Flask(__name__)
 
 # Pastikan folder static ada
 if not os.path.exists('static'):
     os.makedirs('static')
+
+def prepare_data():
+    """Menyiapkan data untuk training"""
+    # Baca dataset
+    df = pd.read_csv('dinkes-od_18513_jml_kasus_penyakit_pneumonia__kabupatenkota_v2_data.csv')
+    
+    # Preprocessing data
+    data = df.groupby('tahun')['jumlah_kasus'].sum().reset_index()
+    
+    # Normalisasi data
+    scaler = MinMaxScaler()
+    data_scaled = scaler.fit_transform(data)
+    
+    # Pisahkan data
+    X = data_scaled[:, 0].reshape(-1, 1)  # Tahun sebagai input
+    Y = data_scaled[:, 1]  # Jumlah kasus sebagai output
+    
+    # Split data
+    X_train, X_test, Y_train, Y_test = train_test_split(X, Y, test_size=0.2, random_state=42)
+    return X_train, X_test, Y_train, Y_test
 
 def find_model_file():
     """Mencari file model di beberapa lokasi yang mungkin"""
@@ -30,11 +52,18 @@ def find_model_file():
             return path
             
     # Jika model tidak ditemukan, coba training ulang
-    print("Model tidak ditemukan, mencoba load dari model.py")
+    print("Model tidak ditemukan, mencoba training ulang model")
     try:
-        from model import train_model
-        model = train_model()
+        # Prepare data
+        X_train, X_test, Y_train, Y_test = prepare_data()
+        
+        # Build dan train model
+        model = build_model()
+        train_model(model, X_train, Y_train, X_test, Y_test)
+        
+        # Simpan model
         model.save('pneumonia_prediction_model.h5')
+        print("Model baru berhasil di-training dan disimpan")
         return 'pneumonia_prediction_model.h5'
     except Exception as e:
         print(f"Error saat training model: {str(e)}")
