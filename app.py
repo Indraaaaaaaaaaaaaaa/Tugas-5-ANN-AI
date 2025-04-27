@@ -15,18 +15,61 @@ app = Flask(__name__)
 if not os.path.exists('static'):
     os.makedirs('static')
 
-# Load model dengan path absolut
-model_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'pneumonia_prediction_model.h5')
-if not os.path.exists(model_path):
-    raise FileNotFoundError(f"Model file not found at {model_path}")
-model = tf.keras.models.load_model(model_path)
+def find_model_file():
+    """Mencari file model di beberapa lokasi yang mungkin"""
+    possible_paths = [
+        'pneumonia_prediction_model.h5',  # Current directory
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), 'pneumonia_prediction_model.h5'),  # Absolute path
+        os.path.join('..', 'pneumonia_prediction_model.h5'),  # Parent directory
+        '/app/pneumonia_prediction_model.h5'  # Docker container path
+    ]
+    
+    for path in possible_paths:
+        if os.path.exists(path):
+            print(f"Model ditemukan di: {path}")
+            return path
+            
+    # Jika model tidak ditemukan, coba training ulang
+    print("Model tidak ditemukan, mencoba load dari model.py")
+    try:
+        from model import train_model
+        model = train_model()
+        model.save('pneumonia_prediction_model.h5')
+        return 'pneumonia_prediction_model.h5'
+    except Exception as e:
+        print(f"Error saat training model: {str(e)}")
+        raise FileNotFoundError("Model tidak ditemukan dan tidak bisa di-training ulang")
 
-# Load data asli dengan path absolut
-data_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'dinkes-od_18513_jml_kasus_penyakit_pneumonia__kabupatenkota_v2_data.csv')
-if not os.path.exists(data_path):
-    raise FileNotFoundError(f"Data file not found at {data_path}")
-df = pd.read_csv(data_path)
-data_tahunan = df.groupby('tahun')['jumlah_kasus'].sum().reset_index()
+def find_data_file():
+    """Mencari file data di beberapa lokasi yang mungkin"""
+    possible_paths = [
+        'dinkes-od_18513_jml_kasus_penyakit_pneumonia__kabupatenkota_v2_data.csv',
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), 'dinkes-od_18513_jml_kasus_penyakit_pneumonia__kabupatenkota_v2_data.csv'),
+        os.path.join('..', 'dinkes-od_18513_jml_kasus_penyakit_pneumonia__kabupatenkota_v2_data.csv'),
+        '/app/dinkes-od_18513_jml_kasus_penyakit_pneumonia__kabupatenkota_v2_data.csv'
+    ]
+    
+    for path in possible_paths:
+        if os.path.exists(path):
+            print(f"Data ditemukan di: {path}")
+            return path
+    
+    raise FileNotFoundError("File data tidak ditemukan")
+
+try:
+    # Load model
+    model_path = find_model_file()
+    model = tf.keras.models.load_model(model_path)
+    print("Model berhasil dimuat")
+
+    # Load data
+    data_path = find_data_file()
+    df = pd.read_csv(data_path)
+    print("Data berhasil dimuat")
+    data_tahunan = df.groupby('tahun')['jumlah_kasus'].sum().reset_index()
+except Exception as e:
+    print(f"Error saat inisialisasi: {str(e)}")
+    raise
 
 @app.route('/')
 def home():
