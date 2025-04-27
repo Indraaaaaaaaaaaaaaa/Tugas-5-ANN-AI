@@ -8,8 +8,6 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import numpy as np
 from sklearn.preprocessing import MinMaxScaler
-from tensorflow.keras.losses import MeanSquaredError
-from tensorflow.keras.metrics import MeanAbsoluteError
 
 app = Flask(__name__)
 
@@ -28,17 +26,9 @@ def initialize_model():
     print("Memuat model ANN...")
     
     try:
-        # Load model dengan custom_objects
-        custom_objects = {
-            'loss': MeanSquaredError(),
-            'mse': MeanSquaredError(),
-            'mae': MeanAbsoluteError()
-        }
-        model = tf.keras.models.load_model(
-            'pneumonia_prediction_model.h5',
-            custom_objects=custom_objects,
-            compile=True
-        )
+        # Load model dengan recompile
+        model = tf.keras.models.load_model('pneumonia_prediction_model.h5', compile=False)
+        model.compile(optimizer='adam', loss='mse', metrics=['mae'])
         print("Model ANN berhasil dimuat")
         
         # Load dan preprocess data
