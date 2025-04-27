@@ -15,11 +15,17 @@ app = Flask(__name__)
 if not os.path.exists('static'):
     os.makedirs('static')
 
-# Load model
-model = tf.keras.models.load_model('pneumonia_prediction_model.h5')
+# Load model dengan path absolut
+model_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'pneumonia_prediction_model.h5')
+if not os.path.exists(model_path):
+    raise FileNotFoundError(f"Model file not found at {model_path}")
+model = tf.keras.models.load_model(model_path)
 
-# Load data asli
-df = pd.read_csv('dinkes-od_18513_jml_kasus_penyakit_pneumonia__kabupatenkota_v2_data.csv')
+# Load data asli dengan path absolut
+data_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'dinkes-od_18513_jml_kasus_penyakit_pneumonia__kabupatenkota_v2_data.csv')
+if not os.path.exists(data_path):
+    raise FileNotFoundError(f"Data file not found at {data_path}")
+df = pd.read_csv(data_path)
 data_tahunan = df.groupby('tahun')['jumlah_kasus'].sum().reset_index()
 
 @app.route('/')
