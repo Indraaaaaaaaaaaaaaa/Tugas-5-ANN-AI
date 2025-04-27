@@ -1,6 +1,5 @@
 from flask import Flask, render_template, request, jsonify
 import tensorflow as tf
-from model import predict_cases, build_model, train_model
 import pandas as pd
 import os
 import matplotlib
@@ -8,7 +7,6 @@ matplotlib.use('Agg')  # Set backend ke Agg untuk server tanpa GUI
 import matplotlib.pyplot as plt
 import seaborn as sns
 import numpy as np
-from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import MinMaxScaler
 
 app = Flask(__name__)
@@ -17,88 +15,50 @@ app = Flask(__name__)
 if not os.path.exists('static'):
     os.makedirs('static')
 
-def prepare_data():
-    """Menyiapkan data untuk training"""
-    # Baca dataset
-    df = pd.read_csv('dinkes-od_18513_jml_kasus_penyakit_pneumonia__kabupatenkota_v2_data.csv')
-    
-    # Preprocessing data
-    data = df.groupby('tahun')['jumlah_kasus'].sum().reset_index()
-    
-    # Normalisasi data
-    scaler = MinMaxScaler()
-    data_scaled = scaler.fit_transform(data)
-    
-    # Pisahkan data
-    X = data_scaled[:, 0].reshape(-1, 1)  # Tahun sebagai input
-    Y = data_scaled[:, 1]  # Jumlah kasus sebagai output
-    
-    # Split data
-    X_train, X_test, Y_train, Y_test = train_test_split(X, Y, test_size=0.2, random_state=42)
-    return X_train, X_test, Y_train, Y_test
+# Inisialisasi variabel global
+model = None
+scaler = None
+data_tahunan = None
 
-def find_model_file():
-    """Mencari file model di beberapa lokasi yang mungkin"""
-    possible_paths = [
-        'pneumonia_prediction_model.h5',  # Current directory
-        os.path.join(os.path.dirname(os.path.abspath(__file__)), 'pneumonia_prediction_model.h5'),  # Absolute path
-        os.path.join('..', 'pneumonia_prediction_model.h5'),  # Parent directory
-        '/app/pneumonia_prediction_model.h5'  # Docker container path
-    ]
+def initialize_model():
+    global model, scaler, data_tahunan
     
-    for path in possible_paths:
-        if os.path.exists(path):
-            print(f"Model ditemukan di: {path}")
-            return path
-            
-    # Jika model tidak ditemukan, coba training ulang
-    print("Model tidak ditemukan, mencoba training ulang model")
+    print("Memuat model ANN...")
+    
     try:
-        # Prepare data
-        X_train, X_test, Y_train, Y_test = prepare_data()
+        # Load model
+        model = tf.keras.models.load_model('pneumonia_prediction_model.h5')
+        print("Model ANN berhasil dimuat")
         
-        # Build dan train model
-        model = build_model()
-        train_model(model, X_train, Y_train, X_test, Y_test)
+        # Load dan preprocess data
+        df = pd.read_csv('dinkes-od_18513_jml_kasus_penyakit_pneumonia__kabupatenkota_v2_data.csv')
+        data_tahunan = df.groupby('tahun')['jumlah_kasus'].sum().reset_index()
         
-        # Simpan model
-        model.save('pneumonia_prediction_model.h5')
-        print("Model baru berhasil di-training dan disimpan")
-        return 'pneumonia_prediction_model.h5'
+        # Inisialisasi scaler
+        scaler = MinMaxScaler()
+        scaler.fit(data_tahunan)
+        print("Data berhasil diproses")
+        
     except Exception as e:
-        print(f"Error saat training model: {str(e)}")
-        raise FileNotFoundError("Model tidak ditemukan dan tidak bisa di-training ulang")
+        print(f"Error saat memuat model: {str(e)}")
+        raise
 
-def find_data_file():
-    """Mencari file data di beberapa lokasi yang mungkin"""
-    possible_paths = [
-        'dinkes-od_18513_jml_kasus_penyakit_pneumonia__kabupatenkota_v2_data.csv',
-        os.path.join(os.path.dirname(os.path.abspath(__file__)), 'dinkes-od_18513_jml_kasus_penyakit_pneumonia__kabupatenkota_v2_data.csv'),
-        os.path.join('..', 'dinkes-od_18513_jml_kasus_penyakit_pneumonia__kabupatenkota_v2_data.csv'),
-        '/app/dinkes-od_18513_jml_kasus_penyakit_pneumonia__kabupatenkota_v2_data.csv'
-    ]
+def predict_cases(year):
+    # Normalisasi input
+    year_scaled = scaler.transform([[year, 0]])[0, 0].reshape(-1, 1)
     
-    for path in possible_paths:
-        if os.path.exists(path):
-            print(f"Data ditemukan di: {path}")
-            return path
+    # Prediksi
+    prediction_scaled = model.predict(year_scaled, verbose=0)
     
-    raise FileNotFoundError("File data tidak ditemukan")
+    # Denormalisasi hasil
+    prediction = scaler.inverse_transform([[year_scaled[0, 0], prediction_scaled[0, 0]]])[0, 1]
+    
+    return int(prediction)
 
-try:
-    # Load model
-    model_path = find_model_file()
-    model = tf.keras.models.load_model(model_path)
-    print("Model berhasil dimuat")
-
-    # Load data
-    data_path = find_data_file()
-    df = pd.read_csv(data_path)
-    print("Data berhasil dimuat")
-    data_tahunan = df.groupby('tahun')['jumlah_kasus'].sum().reset_index()
-except Exception as e:
-    print(f"Error saat inisialisasi: {str(e)}")
-    raise
+# Inisialisasi model saat startup
+print("Memulai inisialisasi...")
+initialize_model()
+print("Inisialisasi selesai")
 
 @app.route('/')
 def home():
@@ -111,7 +71,7 @@ def predict():
         year = int(request.form['year'])
         
         # Lakukan prediksi
-        prediction = predict_cases(model, year)
+        prediction = predict_cases(year)
         
         # Buat dua subplot
         fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
@@ -123,9 +83,7 @@ def predict():
         ax1.set_title('Tren Kasus Pneumonia di Jawa Barat')
         
         # Plot 2: Hasil Prediksi vs Data Aktual
-        # Data historis
         ax2.scatter(data_tahunan['tahun'], data_tahunan['jumlah_kasus'], color='blue', label='Data Aktual')
-        # Titik prediksi
         ax2.scatter(year, prediction, color='red', s=100, label='Prediksi ANN')
         
         # Atur range tahun untuk plot kedua
